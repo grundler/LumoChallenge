@@ -3,6 +3,31 @@
 --      good posture time (SG+STG+CG)
 --  per user per day in the month of December
 
+WITH
+collatedData AS
+    (SELECT
+        owner,
+        act_time_local,
+        sum(CASE
+            WHEN act_type='C_CVBUZZ' THEN act_value::numeric(20)
+            ELSE NULL END) AS c_cvbuzz,
+        sum(CASE
+            WHEN act_type IN ('SG','STG','CG') THEN act_value::numeric(20)
+            ELSE NULL END) AS gp
+    FROM activity_data
+    WHERE act_time_local >= '2015-12-01 00:00:00' -- for our December requirement
+        AND act_time_local < '2016-01-01 00:00:00'
+        AND act_type IN ('C_CVBUZZ','SG','STG','CG')
+        AND owner <> '' -- just ignore unknown owners
+        AND act_value>=0 -- negative values make no sense, ignore as bad data
+    GROUP BY owner, act_time_local
+    ),
+cleanedData as
+    (SELECT *
+    FROM collatedData
+    WHERE c_cvbuzz IS NOT NULL
+        AND gp IS NOT NULL
+    )
 SELECT
     owner, local_date,
     -- nullif returns null if the denominator == 0
@@ -16,23 +41,8 @@ FROM
         sum(c_cvbuzz*gp) AS sumBGP,
         count(*) AS n
     FROM
-        (SELECT
-            owner,
-            act_time_local,
-            sum(CASE
-                WHEN act_type='C_CVBUZZ' THEN act_value::numeric(20)
-                ELSE 0. END) AS c_cvbuzz,
-            sum(CASE
-                WHEN act_type IN ('SG','STG','CG') THEN act_value::numeric(20)
-                ELSE 0. END) AS gp
-        FROM activity_data
-        WHERE act_time_local >= '2015-12-01 00:00:00'
-            AND act_time_local < '2016-01-01 00:00:00'
-        GROUP BY owner, act_time_local
-        --ORDER BY owner, act_time_local
-        ) collatedData
+    cleanedData
     GROUP BY owner, act_time_local::DATE
-    --ORDER BY owner, act_time_local::DATE
     ) dailySums
 ORDER BY owner, local_date
 ;
